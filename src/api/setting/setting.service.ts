@@ -142,7 +142,7 @@ export class SettingService extends MysqlService {
 
 			const output = await this.settingRepository.save({
 				...payload,
-				userId: user['id'] || '',
+				userId: payload['userId'] || user['id'] || '',
 			});
 
 			await queryRunner.commitTransaction();
@@ -168,10 +168,7 @@ export class SettingService extends MysqlService {
 			await this.cacheService.clear(`${process.env.APP_ID}.setting.many`);
 			await this.cacheService.clear(`${process.env.APP_ID}.setting.one`);
 			
-			await this.updateWithId(this.settingRepository, {
-				...payload,
-				userId: user['id'] || '',
-			});
+			await this.updateWithId(this.settingRepository, payload);
 			
 			await queryRunner.commitTransaction();
 			
