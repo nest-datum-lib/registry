@@ -114,20 +114,20 @@ export class RedisRepository {
 				&& item !== 'userRootLogin'
 				&& item !== 'userRootPassword'
 				&& item !== 'secretAccessKey'
-				&& item !== 'secretRefreshKey')
+				&& item !== 'secretRefreshKey');
 
 			for (id in allIdsData) {
 				i = 0;
 				item = {};
 
-				while (i < this.schema.length) {
+				while (i < schema.length) {
 					try {
-						item[this.schema[i]] = (await this.redisRepository.hmget(`${process['PROJECT_ID']}|${this.entityName}|${this.schema[i]}`, id))[0];
+						item[schema[i]] = (await this.redisRepository.hmget(`${process['PROJECT_ID']}|${this.entityName}|${schema[i]}`, id))[0];
 					}
 					catch (err) {
 						console.error(err);
 
-						throw new ErrorException(err.message, getCurrentLine(), { id, i, key: this.schema[i] });
+						throw new ErrorException(err.message, getCurrentLine(), { id, i, key: schema[i] });
 					}
 					i++;
 				}
