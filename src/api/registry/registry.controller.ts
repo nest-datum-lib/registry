@@ -1,60 +1,41 @@
 import getCurrentLine from 'get-current-line';
-import * as Validators from '@nest-datum/validators';
 import { Controller } from '@nestjs/common';
-import { MessagePattern } from '@nestjs/microservices';
 import { 
-	RegistryService,
-	LogsService, 
-} from '@nest-datum/services';
+	MessagePattern,
+	EventPattern, 
+} from '@nestjs/microservices';
+import { BalancerService } from 'nest-datum/balancer/src';
+import * as Validators from 'nest-datum/validators/src';
+import { RegistryService } from './registry.service';
 
 @Controller()
 export class RegistryController {
 	constructor(
 		private readonly registryService: RegistryService,
-		private readonly logsService: LogsService,
+		private readonly balancerService: BalancerService,
 	) {
 	}
 
 	@MessagePattern({ cmd: 'registry.many' })
 	async many(payload) {
 		try {
-			const many = await this.registryService.many({
-				user: Validators.token('accessToken', payload['accessToken'], {
-					secret: process.env.JWT_SECRET_ACCESS_KEY,
-					timeout: process.env.JWT_ACCESS_TIMEOUT,
-					// isRequired: true,
-					role: {
-						name: [ 'Admin' ],
-					},
-				}),
-				relations: Validators.obj('relations', payload['relations']),
-				select: Validators.obj('select', payload['select']),
-				sort: Validators.obj('sort', payload['sort']),
-				filter: Validators.obj('filter', payload['filter']),
-				query: Validators.str('query', payload['query'], {
-					min: 1,
-					max: 255,
-				}),
-				page: Validators.int('page', payload['page'], {
-					min: 1,
-					default: 1,
-				}) || 1,
-				limit: Validators.int('limit', payload['limit'], {
-					min: 1,
-					default: 20,
-				}) || 20,
+			Validators.token('accessToken', payload['accessToken'], {
+				accesses: [ process['ACCESS_BALANCER_MANY'] ],
+				isRequired: true,
 			});
 
-			await this.registryService.clearResources();
+			const many = await this.registryService.many();
+
+			this.balancerService.decrementServiceResponseLoadingIndicator();
 
 			return {
-				total: many[1],
-				rows: many[0],
+				total: many.length,
+				rows: many,
 			};
 		}
 		catch (err) {
-			this.logsService.emit(err);
-			this.registryService.clearResources();
+			this.balancerService.log(err);
+			this.balancerService.decrementServiceResponseLoadingIndicator();
 
 			return err;
 		}
@@ -63,73 +44,58 @@ export class RegistryController {
 	@MessagePattern({ cmd: 'registry.one' })
 	async one(payload) {
 		try {
-			const output = await this.registryService.one({
-				user: Validators.token('accessToken', payload['accessToken'], {
-					secret: process.env.JWT_SECRET_ACCESS_KEY,
-					timeout: process.env.JWT_ACCESS_TIMEOUT,
-					isRequired: true,
-					role: {
-						name: [ 'Admin' ],
-					},
-				}),
-				relations: Validators.obj('relations', payload['relations']),
-				select: Validators.obj('select', payload['select']),
-				id: Validators.id('id', payload['id'], {
-					isRequired: true,
-				}),
+			Validators.token('accessToken', payload['accessToken'], {
+				accesses: [ process['ACCESS_BALANCER_ONE'] ],
+				isRequired: true,
 			});
 
-			await this.registryService.clearResources();
+			const output = await this.registryService.one(Validators.id('id', payload['id'], {
+				isRequired: true,
+			}));
+
+			this.balancerService.decrementServiceResponseLoadingIndicator();
 
 			return output;
 		}
 		catch (err) {
-			this.logsService.emit(err);
-			this.registryService.clearResources();
+			this.balancerService.log(err);
+			this.balancerService.decrementServiceResponseLoadingIndicator();
 
 			return err;
 		}
 	}
 
-	@MessagePattern({ cmd: 'registry.drop' })
+	@EventPattern('registry.drop')
 	async drop(payload) {
 		try {
-			await this.registryService.drop({
-				user: Validators.token('accessToken', payload['accessToken'], {
-					secret: process.env.JWT_SECRET_ACCESS_KEY,
-					timeout: process.env.JWT_ACCESS_TIMEOUT,
-					isRequired: true,
-					role: {
-						name: [ 'Admin' ],
-					},
-				}),
-				id: Validators.id('id', payload['id'], {
-					isRequired: true,
-				}),
+			Validators.token('accessToken', payload['accessToken'], {
+				accesses: [ process['ACCESS_BALANCER_ONE'] ],
+				isRequired: true,
 			});
-			await this.registryService.clearResources();
+
+			await this.registryService.drop(Validators.id('id', payload['id'], {
+				isRequired: true,
+			}));
+
+			this.balancerService.decrementServiceResponseLoadingIndicator();
 
 			return true;
 		}
 		catch (err) {
-			this.logsService.emit(err);
-			this.registryService.clearResources();
+			this.balancerService.log(err);
+			this.balancerService.decrementServiceResponseLoadingIndicator();
 
 			return err;
 		}
 	}
 
-	@MessagePattern({ cmd: 'registry.create' })
+	@EventPattern('registry.create')
 	async create(payload) {
 		try {
 			const output = await this.registryService.create({
 				user: Validators.token('accessToken', payload['accessToken'], {
-					secret: process.env.JWT_SECRET_ACCESS_KEY,
-					timeout: process.env.JWT_ACCESS_TIMEOUT,
+					accesses: [ process['ACCESS_BALANCER_CREATE'] ],
 					isRequired: true,
-					role: {
-						name: [ 'Admin' ],
-					},
 				}),
 				id: Validators.id('id', payload['id']),
 				name: Validators.str('name', payload['name'], {
@@ -137,9 +103,7 @@ export class RegistryController {
 					min: 1,
 					max: 255,
 					// TODO: unique value
-					// isUnique: {
-					// 	redis: process.env.REDIS_REGISTRY_NAMESPACE,
-					// },
+					// isUnique:
 				}),
 				host: Validators.host('host', payload['host'], {
 					isRequired: true,
@@ -159,29 +123,25 @@ export class RegistryController {
 				}),
 			});
 
-			return output;
+			this.balancerService.decrementServiceResponseLoadingIndicator();
 
-			await this.registryService.clearResources();;
+			return output;
 		}
 		catch (err) {
-			this.logsService.emit(err);
-			this.registryService.clearResources();
+			this.balancerService.log(err);
+			this.balancerService.decrementServiceResponseLoadingIndicator();
 
 			return err;
 		}
 	}
 
-	@MessagePattern({ cmd: 'registry.update' })
+	@EventPattern('registry.update')
 	async update(payload) {
 		try {
 			await this.registryService.update({
 				user: Validators.token('accessToken', payload['accessToken'], {
-					secret: process.env.JWT_SECRET_ACCESS_KEY,
-					timeout: process.env.JWT_ACCESS_TIMEOUT,
+					accesses: [ process['ACCESS_BALANCER_UPDATE'] ],
 					isRequired: true,
-					role: {
-						name: [ 'Admin' ],
-					},
 				}),
 				id: Validators.id('id', payload['id']),
 				newId: Validators.id('newId', payload['newId']),
@@ -189,9 +149,7 @@ export class RegistryController {
 					min: 1,
 					max: 255,
 					// TODO: unique value
-					// isUnique: {
-					// 	redis: process.env.REDIS_REGISTRY_NAMESPACE,
-					// },
+					// isUnique:
 				}),
 				host: Validators.host('host', payload['host']),
 				port: Validators.int('port', payload['port'], {
@@ -206,13 +164,13 @@ export class RegistryController {
 				transport: Validators.transport('transport', payload['transport']),
 			});
 
-			await this.registryService.clearResources();
+			this.balancerService.decrementServiceResponseLoadingIndicator();
 
 			return true;
 		}
 		catch (err) {
-			this.logsService.emit(err);
-			this.registryService.clearResources();
+			this.balancerService.log(err);
+			this.balancerService.decrementServiceResponseLoadingIndicator();
 
 			return err;
 		}

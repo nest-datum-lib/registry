@@ -1,20 +1,27 @@
+import { redisConfig } from 'config/redis';
+import { RedisModule } from '@liaoliaots/nestjs-redis';
 import { Module } from '@nestjs/common';
+import { CacheService } from 'nest-datum/cache/src';
 import { 
-	RegistryService,
-	LogsService, 
-	CacheService,
-} from '@nest-datum/services';
+	BalancerRepository,
+	BalancerService, 
+} from 'nest-datum/balancer/src';
+import { RegistryService } from './registry.service';
 import { RegistryController } from './registry.controller';
 
 @Module({
-	controllers: [ RegistryController ],
-	imports: [],
+	imports: [
+		RedisModule.forRoot(redisConfig),
+	],
+	controllers: [ 
+		RegistryController,
+	],
 	providers: [ 
-		RegistryService,
-		LogsService, 
+		BalancerRepository,
+		BalancerService,
 		CacheService,
+		RegistryService,
 	],
 })
 export class RegistryModule {
 }
-
