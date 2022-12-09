@@ -109,6 +109,12 @@ export class RedisRepository {
 				i,
 				item,
 				output = [];
+			const schema = this.schema.filter((item) => item !== 'restartsCompleted'
+				&& item !== 'userRootEmail'
+				&& item !== 'userRootLogin'
+				&& item !== 'userRootPassword'
+				&& item !== 'secretAccessKey'
+				&& item !== 'secretRefreshKey')
 
 			for (id in allIdsData) {
 				i = 0;
@@ -132,8 +138,6 @@ export class RedisRepository {
 	}
 
 	async findOne(id: string, select?: Array<any>): Promise<any> {
-		console.log('id, select', id, select);
-
 		let i = 0,
 			output = {};
 		const schema = ((select || []).length > 0)
