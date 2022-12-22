@@ -42,12 +42,12 @@ export class RedisRepository {
 	}
 
 	async find(payload?: object): Promise<any> {
-		const select = payload['select']
+		const select = (payload || {})['select']
 			? payload['select']
 			: this.schema;
 		let ids;
 
-		if (payload['where']
+		if ((payload || {})['where']
 			&& payload['where'] === 'object'
 			&& !Array.isArray(payload['where'])) {
 			let key,
