@@ -41,19 +41,52 @@ export class RedisRepository {
 		}));
 	}
 
-	async find(): Promise<any> {
-		const ids = await this.redisRepository.hgetall(`${process['PROJECT_ID']}|replica|id`);
+	async find(payload?: object): Promise<any> {
+		const select = payload['select']
+			? payload['select']
+			: this.schema;
+		let ids;
+
+		if (payload['where']
+			&& payload['where'] === 'object'
+			&& !Array.isArray(payload['where'])) {
+			let key,
+				id,
+				whereIds = [];
+
+			for (key in payload['where']) {
+				ids = await this.redisRepository.hgetall(`${process['PROJECT_ID']}|replica|${key}`);
+				break;
+			}
+			if (!ids
+				|| typeof ids !== 'object') {
+				return [];
+			}
+			for (id in ids) {
+				if (ids[id] === payload['where'][key]) {
+					whereIds.push(id);
+				}
+			}
+			ids = whereIds;
+		}
+		else {
+			ids = await this.redisRepository.hgetall(`${process['PROJECT_ID']}|replica|id`);
+		}
 		let id,
 			output = [];
 
+		if (!ids
+			|| typeof ids !== 'object') {
+			return [];
+		}
 		for (id in ids) {
 			let i = 0,
 				item = {};
 
-			while (i < this.schema.length) {
-				const value = await this.redisRepository.hget(`${process['PROJECT_ID']}|replica|${this.schema[i]}`, id);
+			while (i < select.length) {
+				const value = await this.redisRepository.hget(`${process['PROJECT_ID']}|replica|${select[i]}`, id);
 
-				item[this.schema[i]] = Array.isArray(value)
+				item[select[i]] = Array.isArray(value)
 					? value[0]
 					: value;
 				i++;
