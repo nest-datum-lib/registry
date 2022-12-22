@@ -41,100 +41,26 @@ export class RedisRepository {
 		}));
 	}
 
-	async find(payload?: object): Promise<any> {
-		if (payload
-			&& typeof payload === 'object'
-			&& payload['where']
-			&& typeof payload['where'] === 'object') {
-			let keyWhere,
-				projectId,
-				output = {};
+	async find(): Promise<any> {
+		const ids = await this.redisRepository.hgetall(`${process['PROJECT_ID']}|replica|id`);
+		let id,
+			output = [];
 
-			for (keyWhere in payload['where']) {
-				const keys = await this.scan(`*|${this.entityName}|${keyWhere}`, 64);
-				let i = 0;
-
-				while (i < (keys['length'] || 0)) {
-					const replicas = await this.redisRepository.hgetall(keys[i]);
-					const replicasIds = Object
-						.keys(replicas)
-						.filter((id) => replicas[id] === payload['where'][keyWhere]);
-					const keySplit = keys[i].split('|');
-					const select = Array.isArray(payload['select'])
-						? payload['select']
-						: this.schema;
-					let ii = 0;
-
-					projectId = keySplit[0];
-					
-					while (ii < replicasIds.length) {
-						let iii = 0;
-
-						while (iii < select.length) {
-							const value = await this.redisRepository.hgetall(`${projectId}|${this.entityName}|${select[iii]}`);
-							let id;
-
-							for (id in value) {
-								if (!output[replicasIds[ii]]) {
-									output[replicasIds[ii]] = {
-										id: replicasIds[ii],
-										projectId,
-									};
-								}
-								output[replicasIds[ii]][select[iii]] = value[id];
-							}
-							iii++;
-						}
-						ii++;
-					}
-					i++;
-				}
-				break;
-			}
-			return Object.values(output);
-		}
-		else {
-			let allIdsData = {};
-
-			try {
-				allIdsData = await this.redisRepository.hgetall(`${process['PROJECT_ID']}|${this.entityName}|id`);
-			}
-			catch (err) {
-				console.error(err);
-
-				throw new ErrorException(err.message, getCurrentLine(), { entityName: this.entityName });
-			}
-
-			let id,
-				i,
-				item,
-				output = [];
-			const schema = this.schema.filter((item) => item !== 'restartsCompleted'
-				&& item !== 'userRootEmail'
-				&& item !== 'userRootLogin'
-				&& item !== 'userRootPassword'
-				&& item !== 'secretAccessKey'
-				&& item !== 'secretRefreshKey');
-
-			for (id in allIdsData) {
-				i = 0;
+		for (id in ids) {
+			let i = 0,
 				item = {};
 
-				while (i < schema.length) {
-					try {
-						item[schema[i]] = (await this.redisRepository.hmget(`${process['PROJECT_ID']}|${this.entityName}|${schema[i]}`, id))[0];
-					}
-					catch (err) {
-						console.error(err);
+			while (i < this.schema.length) {
+				const value = await this.redisRepository.hget(`${process['PROJECT_ID']}|replica|${this.schema[i]}`, id);
 
-						throw new ErrorException(err.message, getCurrentLine(), { id, i, key: schema[i] });
-					}
-					i++;
-				}
-				output.push({ ...item });
+				item[this.schema[i]] = Array.isArray(value)
+					? value[0]
+					: value;
+				i++;
 			}
-			return output;
+			output.push(item);
 		}
+		return output;
 	}
 
 	async findOne(id: string, select?: Array<any>): Promise<any> {
