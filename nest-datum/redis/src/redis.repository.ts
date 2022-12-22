@@ -73,27 +73,26 @@ export class RedisRepository {
 			ids = await this.redisRepository.hgetall(`${process['PROJECT_ID']}|replica|id`);
 		}
 		let id,
-			output = [];
+			output = {};
 
 		if (!ids
 			|| typeof ids !== 'object') {
 			return [];
 		}
-		for (id in ids) {
-			let i = 0,
-				item = {};
+		let i = 0;
 
-			while (i < select.length) {
-				const value = await this.redisRepository.hget(`${process['PROJECT_ID']}|replica|${select[i]}`, id);
+		while (i < select.length) {
+			const values = await this.redisRepository.hgetall(`${process['PROJECT_ID']}|replica|${select[i]}`);
 
-				item[select[i]] = Array.isArray(value)
-					? value[0]
-					: value;
-				i++;
+			for (id in values) {
+				if (!output[id]) {
+					output[id] = { id };
+				}
+				output[id][select[i]] = values[id];
 			}
-			output.push(item);
+			i++;
 		}
-		return output;
+		return Object.values(output);
 	}
 
 	async findOne(id: string, select?: Array<any>): Promise<any> {
