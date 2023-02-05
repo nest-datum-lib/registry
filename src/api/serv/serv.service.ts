@@ -37,6 +37,6 @@ export class ServService extends RedisService {
 		}
 		output = Object.values(output);
 
-		return [ output, output.length ];
+		return [ output, output['length'] ];
 	}
 }
