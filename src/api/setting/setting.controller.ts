@@ -195,12 +195,12 @@ export class SettingController {
 				description: Validators.str('description', payload['description'], {
 					min: 1,
 					max: 255,
-				}),
+				}) || '',
 				dataTypeId: Validators.id('dataTypeId', payload['dataTypeId']),
 				value: Validators.valueWithDataType('value', payload['value'], {
 					dataTypeId: payload['dataTypeId'],
-				}),
-				regex: Validators.regex('regex', payload['regex']),
+				}) || '',
+				regex: Validators.regex('regex', payload['regex']) || '',
 				isRequired: Validators.bool('isRequired', payload['isRequired']),
 				isDeleted: Validators.bool('isDeleted', payload['isDeleted']),
 				isNotDelete: Validators.bool('isNotDelete', payload['isNotDelete']),
