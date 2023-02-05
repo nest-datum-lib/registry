@@ -49,6 +49,8 @@ export class SettingController extends NestDatumController {
 		if (!user) {
 			throw new WarningException(`User is undefined or token is not valid.`);
 		}
+		console.log('??????????', options, utilsCheckExists(options['isNotDelete']), utilsCheckBool(options['isNotDelete']));
+
 		return {
 			userId: user['id'],
 			value: String(options['value'] ?? ''),
@@ -70,8 +72,12 @@ export class SettingController extends NestDatumController {
 			...utilsCheckStrRegex(options['regex']) 
 				? { regex: options['regex'] } 
 				: { regex: '' },
-			...(utilsCheckExists(options['isNotDelete']) && utilsCheckBool(options['isNotDelete'])) ? { isNotDelete: options['isNotDelete'] } : {},
-			...(utilsCheckExists(options['isDeleted']) && utilsCheckBool(options['isDeleted'])) ? { isDeleted: options['isDeleted'] } : {},
+			...(utilsCheckExists(options['isNotDelete']) && utilsCheckBool(options['isNotDelete'])) 
+				? { isNotDelete: options['isNotDelete'] } 
+				: {},
+			...(utilsCheckExists(options['isDeleted']) && utilsCheckBool(options['isDeleted'])) 
+				? { isDeleted: options['isDeleted'] } 
+				: {},
 		};
 	}
 
