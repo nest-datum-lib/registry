@@ -22,11 +22,11 @@ export class SettingSeeder {
 			// new transaction
 			await queryRunner.startTransaction();
 			await Bluebird.each([{
-				id: 'sso-setting-app-id',
+				id: 'registry-setting-app-id',
 				name: 'App id',
 				description: 'App id.',
 				dataTypeId: 'data-type-type-text',
-				value: process.env.APP_ID || 'files1',
+				value: process.env.APP_ID,
 				isNotDelete: true,
 			}], async (data) => {
 				try {
