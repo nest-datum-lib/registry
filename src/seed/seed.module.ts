@@ -18,7 +18,7 @@ import {
 	CacheService, 
 } from '@nest-datum/cache';
 import { SeedService } from './seed.service';
-import { Setting } from 'src/api/setting/setting.entity';
+import { Setting } from '../api/setting/setting.entity';
 import { SettingSeeder } from './setting.seeder';
 
 @Module({

@@ -16,22 +16,27 @@ import {
 	Exception,
 } from '@nest-datum-common/exceptions';
 import {
+	exists as utilsCheckExists,
 	obj as utilsCheckObj,
 	strId as utilsCheckStrId,
 	strHost as utilsCheckStrHost,
 	strName as utilsCheckStrName,
-	strDescription as utilsCheckStrDescription,
+	strQueue as utilsCheckStrQueue,
 	numericInt as utilsCheckNumericInt,
 } from '@nest-datum-utils/check';
 import { ReplicaService } from '@nest-datum/replica';
 import { RedisService } from '@nest-datum/redis';
+
+const SEND_NOT_FOUND_BALANCER = '[1]';
+const SEND_NOT_FOUND_DATA = '[2]';
+const SEND_NOT_FOUND_CONN = '[3]';
 
 const _savedInstance = {};
 
 @Injectable()
 export class TransportService extends RedisService {
 	constructor(
-		@InjectRedis(process['REDIS_TRANSPORT']) public redis: Redis,
+		@InjectRedis(process['REDIS_TRANSPORT']) public redisService: Redis,
 		private readonly replicaService: ReplicaService,
 	) {
 		super();
@@ -46,8 +51,8 @@ export class TransportService extends RedisService {
 			connectionInstance = ClientProxyFactory.create({
 				transport: Transport.TCP,
 				options: {
-					host: host,
-					port: Number(port),
+					host: host || this.replicaService.setting('app_host'),
+					port: Number(port || this.replicaService.setting('app_port')),
 				},
 			});
 			_savedInstance[id] = connectionInstance;
@@ -57,7 +62,7 @@ export class TransportService extends RedisService {
 		return connectionInstance;
 	}
 
-	async isConnected(connectionInstance, { id, indicator }: { id: string; indicator?: number }): Promise<boolean> {
+	async isConnected(connectionInstance, id: string): Promise<boolean> {
 		try {
 			let interval,
 				index = 0;
@@ -71,140 +76,150 @@ export class TransportService extends RedisService {
 							resolve(true);
 							return;
 						}
-						else if (index >= Number(process.env.APP_TRANSPORT_ATTEMPTS_RECONNCT || 3)) {
+						else if (index >= Number(this.replicaService.setting('transport_connect_attempts') || 3)) {
 							clearInterval(interval);
-							reject(new Error(`Service "${id}" is unavailable`));
+							reject(new Error(`Service "${id}" is unavailable.`));
 							return;
 						}
 						index += 1;
-					}, Number(process.env.APP_TRANSPORT_ATTEMPTS_RECONNCT_TIMEOUT || 200));
+					}, Number(this.replicaService.setting('transport_connect_attempts_timeout') || 200));
 				}));
 			}
-			await this.incrementLoadingIndicator(id);
-
 			return true;
 		}
 		catch (err) {
 			delete _savedInstance[id];
-			// await this.cancel(id);
 		}
 		return false;
 	}
 
-	async lessLoadedConnection({ id, name }: { id?: string; name?: string }): Promise<any> {
-		let prefix = `${process.env.USER_ID}|${process.env.PROJECT_ID}|`,
-			key,
-			lessLoader,
-			lessLoaderId,
-			data = {};
+	async lessLoadedConnection(appName: string): Promise<any> {
+		const redisValue = await this.redisService.lindex(this.replicaService.prefix(`${appName}|balancer`), 0);
 
-		if (utilsCheckStrDescription(name)) {
-			prefix += `${name}|`;
+		if (!utilsCheckStrQueue(redisValue)) {
+			throw new NotFoundException(`Replica ${appName} is undefined.`, SEND_NOT_FOUND_BALANCER);
+		}
+		const redisValueSplit = redisValue.split('|');
 
-			if (utilsCheckStrId(id)) {
-				prefix += `${id}|`;
-			}
-		}
-		else if (utilsCheckStrId(id)) {
-			prefix += `${id}|`;
-		}
-		const dataProcessed = (await this.redisScanStream(prefix));
-		let i = 0;
-
-		while (i < dataProcessed.length) {
-			data[dataProcessed[i]] = await this.redis.get(dataProcessed[i]);
-			i++;
-		}
-
-		for (key in data) {
-			const keySplit = key.split('|');
-			const currentId = keySplit[keySplit.length - 2];
-			const currentValue = Number(data[key]);
-
-			if (currentId !== process.env.APP_ID) {
-				if (currentValue === 0) {
-					lessLoaderId = currentId;
-					break;
-				}
-				if (lessLoader > currentValue
-					|| typeof lessLoader === 'undefined') {
-					lessLoader = currentValue;
-					lessLoaderId = currentId;
-				}
-			}
-		}
-		if (!utilsCheckStrId(lessLoaderId)) {
-			return undefined;
-		}
-		return ({
-			id: id || lessLoaderId,
-			...JSON.parse(data[this.replicaService.prefix('address', lessLoaderId, name)] || await this.redis.get(this.replicaService.prefix('address', lessLoaderId))),
-		});
+		return {
+			id: redisValueSplit[0],
+			name: appName,
+			host: redisValueSplit[1],
+			port: redisValueSplit[2],
+		};
 	}
 
-	async setLoadingIndicator(id?: string, initialValue?: number): Promise<any> {
-		await this.redis.set(this.replicaService.prefix('loadingIndicator', id), String(initialValue || 0));
-	}
+	async balance(): Promise<any> {
+		const appName = this.replicaService.setting('app_name');
+		const appId = this.replicaService.setting('app_id');
+		const appHost = this.replicaService.setting('app_host');
+		const appPort = this.replicaService.setting('app_port');
 
-	async incrementLoadingIndicator(id?: string): Promise<number> {
-		let value;
-
-		await this.setLoadingIndicator(id, (value = Number(await this.redis.get(this.replicaService.prefix('loadingIndicator'))) + 1));
-
-		return value;
-	}
-
-	async decrementLoadingIndicator(id?: string): Promise<number> {
-		let value;
-
-		await this.setLoadingIndicator(id, (value = (Number(await this.redis.get(this.replicaService.prefix('loadingIndicator'))) || 1) - 1));
-
-		return value;
-	}
-
-	async createOptions(options?: object): Promise<any> {
-		await this.redis.set(this.replicaService.prefix('options'), JSON.stringify({
-			id: this.replicaService.id(),
-			createdAt: String(new Date()),
-			...(options || {}),
-		}));
-	}
-
-	async createAddress({ host, port }: { host?: string; port?: number }): Promise<any> {
-		await this.redis.set(this.replicaService.prefix('address'), JSON.stringify({
-			host: host || process.env.APP_HOST,
-			port: port || process.env.APP_PORT,
-		}));
-	}
-
-	async cancel(id?: string, name?: string): Promise<any> {
-		const prefix = name
-			? this.replicaService.prefix('address', id, name)
-			: (await this.redisScanStream(`${id}|address`))[0];
-		const prefixSplit = prefix.split('|');
-
-		await this.redis.del(this.replicaService.prefix('address', prefixSplit[prefixSplit.length - 2], prefixSplit[prefixSplit.length - 3]));
-		await this.redis.del(this.replicaService.prefix('options', prefixSplit[prefixSplit.length - 2], prefixSplit[prefixSplit.length - 3]));
-		await this.redis.del(this.replicaService.prefix('loadingIndicator', prefixSplit[prefixSplit.length - 2], prefixSplit[prefixSplit.length - 3]));
-	}
-
-	async create(options: object = {}): Promise<boolean> {
-		const host = options['host'] || process.env.APP_HOST
-		const port = Number(options['port'] || process.env.APP_PORT);
-
-		if (!utilsCheckStrHost(host)) {
-			throw new Error('Replica host is undefiined. Add "APP_HOST" property to .env file or pass "host" parameter to create function.');
+		try {
+			await this.redisService.lrem(this.replicaService.prefix(`${appName}|balancer`), 0, `${appId}|${appHost}|${appPort}`);
 		}
-		if (!utilsCheckNumericInt(port)) {
-			throw new Error('Replica port is undefiined. Add "APP_PORT" property to .env file or pass "port" parameter to create function.');
+		catch (err) {
 		}
-		await this.setLoadingIndicator();
-		await this.createOptions(options);
-		await this.createAddress({ host, port });
+		await this.redisService.rpush(this.replicaService.prefix(`${appName}|balancer`), `${appId}|${appHost}|${appPort}`);
 
-		await this.sendLog(new NotificationException(`Replica ${this.replicaService.id()} successfully created!`));
-	
+		return appId;
+	}
+
+	async get(appId: string): Promise<any> {
+		return {
+			id: appId,
+			name: await this.redisService.get(this.replicaService.prefix(`${appId}|app_name`)),
+			host: await this.redisService.get(this.replicaService.prefix(`${appId}|app_host`)),
+			port: await this.redisService.get(this.replicaService.prefix(`${appId}|app_port`)),
+		};
+	}
+
+	async create(): Promise<boolean> {
+		const appId = this.replicaService.setting('app_id');
+		const appHost = this.replicaService.setting('app_host')
+		const appPort = this.replicaService.setting('app_port');
+
+		if (!utilsCheckStrHost(appHost)) {
+			throw new Error('Replica host is undefiined.');
+		}
+		if (!utilsCheckNumericInt(appPort)) {
+			throw new Error('Replica port is undefiined.');
+		}
+		await this.createSettingsInRedis();
+		await this.balance();
+		await this.sendLog(new NotificationException(`Replica "${appId} - ${appHost}:${appPort}" successfully created!`));
+
 		return true;
+	}
+
+	async createSettingsInRedis(): Promise<any> {
+		const settings = this.replicaService.settings();
+		const appId = settings['app_id'];
+		const appName = settings['app_name'];
+		let key;
+
+		for (key in settings) {
+			await this.redisService.set(this.replicaService.prefix(`${appName}|${appId}|${key}`), settings[key]);
+			await this.redisService.set(this.replicaService.prefix(`${appId}|${key}`), settings[key]);
+		}
+		return settings;
+	}
+
+	async send({ name, id, cmd }: { name?: string, id?: string; cmd: string }, payload: any): Promise<any> {
+		const replicaData = utilsCheckStrId(id)
+			? await this.get(id)
+			: await this.lessLoadedConnection(name);
+
+		if (!replicaData) {
+			throw new NotFoundException(`Replica "${id || name}" not found.`, SEND_NOT_FOUND_DATA);
+		}
+		const connectionInstance = this.connection(replicaData);
+
+		if (!connectionInstance
+			|| !(await this.isConnected(connectionInstance, replicaData['id']))) {
+			throw new NotFoundException(`Replica "${id || name}" not found.`, SEND_NOT_FOUND_CONN);
+		}
+		const cmdIsPostAction = cmd.includes('.create') 
+			|| cmd.includes('.send')
+			|| cmd.includes('.content');
+
+		if (cmdIsPostAction
+			&& utilsCheckObj(payload)
+			&& !utilsCheckStrId(payload['id'])) {
+			payload['id'] = uuidv4();
+			payload['createdAt'] = (new Date()).toISOString();
+		}
+		if (cmdIsPostAction
+			|| cmd.includes('.update')
+			|| cmd.includes('.drop')) {
+			connectionInstance.emit(cmd, { ...payload });
+		}
+		else {
+			const connectionInstanceResponse = await lastValueFrom(connectionInstance
+				.send({ cmd }, payload)
+				.pipe(map(response => response)));
+
+			if (!utilsCheckExists(connectionInstanceResponse)) {
+				throw new NotFoundException(`Resource not found.`);
+			}
+			else if (utilsCheckObj(connectionInstanceResponse) 
+				&& utilsCheckNumericInt(connectionInstanceResponse['errorCode'])) {
+				switch (connectionInstanceResponse['errorCode']) {
+					case 404:
+						throw new NotFoundException(connectionInstanceResponse['message']);
+					case 403:
+						throw new WarningException(connectionInstanceResponse['message']);
+					default:
+						throw new ErrorException(connectionInstanceResponse['message']);
+				}
+			}
+			return connectionInstanceResponse;
+		}
+		if (utilsCheckObj(payload)) {
+			delete payload['accessToken'];
+			delete payload['refreshToken'];
+		}
+		return payload;
 	}
 
 	async sendLog(exception: Exception): Promise<any> {
@@ -226,57 +241,5 @@ export class TransportService extends RedisService {
 				throw new err;
 			}
 		}
-	}
-
-	async send({ id, cmd, name }: { id?: string; cmd: string, name?: string }, payload: any): Promise<any> {
-		const replicaData =  await this.lessLoadedConnection({ id, name });
-
-		if (!replicaData) {
-			throw new NotFoundException(`Replica "${id || name}" not found [1].`);
-		}
-		const connectionInstance = this.connection(replicaData);
-
-		if (!connectionInstance
-			|| !(await this.isConnected(connectionInstance, { id: replicaData['id'] }))) {
-			throw new NotFoundException(`Replica "${id || name}" not found [2].`);
-		}
-		const cmdIsPostAction = cmd.includes('.create') || cmd.includes('.send');
-
-		if (cmdIsPostAction
-			&& utilsCheckObj(payload)
-			&& !utilsCheckStrId(payload['id'])) {
-			payload['id'] = uuidv4();
-			payload['createdAt'] = (new Date()).toISOString();
-		}
-		if (cmdIsPostAction
-			|| cmd.includes('.update')
-			|| cmd.includes('.drop')) {
-			connectionInstance.emit(cmd, { ...payload });
-		}
-		else {
-			const connectionInstanceResponse = await lastValueFrom(connectionInstance
-				.send({ cmd }, payload)
-				.pipe(map(response => response)));
-
-			if (!utilsCheckObj(connectionInstanceResponse)) {
-				throw new NotFoundException(`Resource not found.`);
-			}
-			else if (utilsCheckNumericInt(connectionInstanceResponse['errorCode'])) {
-				switch (connectionInstanceResponse['errorCode']) {
-					case 404:
-						throw new NotFoundException(connectionInstanceResponse['message']);
-					case 403:
-						throw new WarningException(connectionInstanceResponse['message']);
-					default:
-						throw new ErrorException(connectionInstanceResponse['message']);
-				}
-			}
-			return connectionInstanceResponse;
-		}
-		if (utilsCheckObj(payload)) {
-			delete payload['accessToken'];
-			delete payload['refreshToken'];
-		}
-		return payload;
 	}
 }

@@ -6,7 +6,7 @@ import {
 } from 'typeorm';
 import { Promise as Bluebird } from 'bluebird';
 import { v4 as uuidv4 } from 'uuid';
-import { Setting } from 'src/api/setting/setting.entity';
+import { Setting } from '../api/setting/setting.entity';
 
 export class SettingSeeder {
 	constructor(

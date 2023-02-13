@@ -7,36 +7,39 @@ import { RedisService } from '@nest-datum/redis';
 @Injectable()
 export class ServService extends RedisService {
 	constructor(
-		@InjectRedis(process['REDIS_TRANSPORT']) public redis: Redis,
+		@InjectRedis(process['REDIS_TRANSPORT']) public redisService: Redis,
 		private readonly replicaService: ReplicaService,
 	) {
 		super();
 	}
 
 	async many({ user, ...payload }): Promise<any> {
-		const dataProcessed = (await this.redisScanStream(`${process.env.USER_ID}|${process.env.PROJECT_ID}|`));
-		let output = {},
-			i = 0,
-			ii;
+		const dataProcessed = (await this.keysScan(this.replicaService.prefix(`*|app_id`)));
+		let output = [],
+			i = 0;
 
 		while (i < dataProcessed.length) {
-			const [ name, id ] = dataProcessed[i]
-				.replace(`${process.env.USER_ID}|${process.env.PROJECT_ID}|`, '')
+			const nameSplit = dataProcessed[i]
+				.replace(this.replicaService.prefix(), '')
 				.split('|');
+			const id = nameSplit[nameSplit.length - 2];
 
-			if (!output[id]) {
-				output[id] = {
+			if (id 
+				&& !output[id]
+				&& nameSplit.length === 3) {
+				output.push({
 					id,
-					name,
-					indicator: await this.redis.get(this.replicaService.prefix('loadingIndicator', id, name)),
-					...JSON.parse(await this.redis.get(this.replicaService.prefix('address', id, name))),
-					...JSON.parse(await this.redis.get(this.replicaService.prefix('options', id, name))),
-				};
+					name: await this.redisService.get(this.replicaService.prefix(`${id}|app_name`)),
+					host: await this.redisService.get(this.replicaService.prefix(`${id}|app_host`)),
+					port: Number(await this.redisService.get(this.replicaService.prefix(`${id}|app_port`))),
+				});
 			}
 			i++;
 		}
-		output = Object.values(output);
-
-		return [ output, output['length'] ];
+		
+		return {
+			total: output.length,
+			rows: output,
+		};
 	}
 }
